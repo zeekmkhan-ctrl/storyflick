@@ -44,7 +44,7 @@ export default async function HomePage({
   searchParams: Promise<{ mood?: string }>;
 }) {
   const resolvedParams = await searchParams;
-  const selectedMood = resolvedParams.mood || null;
+  const selectedMood = resolvedParams.mood as Mood || null;
   
   // This will either get your real stories or trigger a visible error state
   const stories = await getStories();
