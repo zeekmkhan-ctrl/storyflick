@@ -1,239 +1,228 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { TrendingUp } from "lucide-react";
-import StoryCard from "@/components/home/StoryCard";
-import MoodFilter from "@/components/home/MoodFilter";
-import Navbar from "@/components/ui/Navbar";
-import Onboarding from "@/components/ui/Onboarding";
-import { STORIES } from "@/data/stories";
-import { Mood, Story } from "@/types";
-import { useUser } from "@/lib/userContext";
-import { isOnboarded } from "@/lib/storage";
+import { use, useEffect, useState } from "react";
+import { Heart, Users, BookOpen, Clock } from "lucide-react";
+import Link from "next/link";
 import { client } from "@/lib/sanity";
+import Navbar from "@/components/ui/Navbar";
+import { MOOD_CONFIG } from "@/lib/moods";
+import type { Story } from "@/types";
 
-// ─── GROQ query that matches exactly what the app's Story type expects ───────
-// Key fixes vs the old query:
-//   1.  "id": id          → renames Sanity's custom `id` field to JS key `id`
-//   2.  author { ... }    → inline object (not author-> reference) matching schema
-//   3.  "visualPrompt":   → added so SceneReader doesn't blow up on undefined
-const STORIES_QUERY = `*[_type == "story"] | order(publishedAt desc) {
-  "id": id,
-  title,
-  tagline,
-  mood,
-  totalReadMinutes,
-  publishedAt,
-  featured,
-  tags,
-  author {
-    id,
-    name,
-    bio,
-    avatar,
-    avatarColor,
-    storiesCount,
-    joinedDate
-  },
-  scenes[] {
-    id,
-    sceneNumber,
-    ambientEmoji,
-    bgClass,
-    text,
-    "visualPrompt": coalesce(visualPrompt, "")
-  }
-}`;
+interface AuthorData {
+  id: string;
+  name: string;
+  avatar: string;
+  avatarColor: string;
+  bio: string;
+  imageUrl?: string;
+  followers: number;
+}
 
-export default function HomePage() {
-  const { user } = useUser();
-  const [stories, setStories] = useState<Story[]>(STORIES); // start with local fallback
+export default function AuthorPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  
+  const [author, setAuthor] = useState<AuthorData | null>(null);
+  const [stories, setStories] = useState<Array<Pick<Story, "id" | "title" | "tagline" | "mood" | "totalReadMinutes" | "publishedAt" | "tags"> & { author: AuthorData }>>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedMood, setSelectedMood] = useState<Mood | null>(null);
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const featuredRef = useRef<HTMLDivElement>(null);
-  const moodRef = useRef<HTMLDivElement>(null);
-  const heroRef = useRef<HTMLElement>(null);
-  const [heroOpacity, setHeroOpacity] = useState(1);
-  const [bgPos, setBgPos] = useState<string>("25% center");
-  const router = useRouter();
+  const [upvotes, setUpvotes] = useState(0);
+  const [hasUpvoted, setHasUpvoted] = useState(false);
 
   useEffect(() => {
-    if (!isOnboarded()) {
-      const timer = setTimeout(() => setShowOnboarding(true), 800);
-      return () => clearTimeout(timer);
-    }
-  }, []);
+    async function getAuthorData() {
+      try {
+        // ⚡ THE FIX: Modified query filter to map across dereferenced pointer links (author->id or author->_id)
+        const query = `*[_type == "story" && (author->id == $id || author->_id == $id)] | order(_createdAt desc) {
+          "id": id,
+          title,
+          tagline,
+          mood,
+          author-> {
+            "id": coalesce(id, _id),
+            name,
+            bio,
+            avatar,
+            avatarColor,
+            followers,
+            "imageUrl": image.asset->url
+          },
+          totalReadMinutes,
+          publishedAt,
+          tags
+        }`;
 
-  // ─── Fetch from Sanity, replace local data when available ─────────────────
-  useEffect(() => {
-    client
-      .fetch<Story[]>(STORIES_QUERY)
-      .then((data) => {
-        // Only replace local stories if Sanity actually returned something.
-        // This means: as long as you have at least 1 published story in Sanity,
-        // the app shows Sanity data and ignores data/stories.ts entirely.
-        if (Array.isArray(data) && data.length > 0) {
-          setStories(data);
+        const fetchedStories = await client.fetch(query, { id });
+        
+        if (fetchedStories && fetchedStories.length > 0) {
+          const authorInfo = fetchedStories[0].author;
+          setAuthor(authorInfo);
+          setStories(fetchedStories);
+          setUpvotes(Math.floor((authorInfo.followers || 0) * 1.4) + 12);
+        } else {
+          // Fallback backup: If an author exists but hasn't published any stories yet, look them up directly
+          const directAuthorQuery = `*[_type == "author" && (id == $id || _id == $id)][0] {
+            "id": coalesce(id, _id),
+            name,
+            bio,
+            avatar,
+            avatarColor,
+            followers,
+            "imageUrl": image.asset->url
+          }`;
+          const directAuthor = await client.fetch(directAuthorQuery, { id });
+          if (directAuthor) {
+            setAuthor(directAuthor);
+            setStories([]);
+            setUpvotes(Math.floor((directAuthor.followers || 0) * 1.4) + 12);
+          }
         }
-        // If Sanity returns empty (no published stories yet), keep local fallback.
-      })
-      .catch((err) => {
-        console.error("Sanity fetch failed, using local stories:", err);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const featured = stories.filter((s) => s.featured);
-  const filtered = selectedMood
-    ? stories.filter((s) => s.mood === selectedMood)
-    : stories;
-
-  const now = new Date();
-  const hour = now.getHours();
-  const day = now.getDay();
-  const isSunday = day === 0;
-  const ambientLabel = isSunday
-    ? "Sunday"
-    : hour >= 21
-    ? "Night"
-    : hour >= 17
-    ? "Late evening"
-    : hour >= 12
-    ? "Afternoon"
-    : "Morning";
-  const ambientMessage = isSunday
-    ? "Slow Sundays deserve soft stories."
-    : hour >= 21
-    ? "A quiet story before sleep?"
-    : hour >= 17
-    ? "Perfect weather for a story."
-    : hour >= 12
-    ? "The world can wait. Read awhile."
-    : "Slow mornings deserve gentle stories.";
-
-  const handleStepInside = (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (e?.altKey || e?.metaKey) {
-      if (featured[0]) router.push(`/read/${encodeURIComponent(featured[0].id)}`);
-      return;
+      } catch (error) {
+        console.error("Error fetching author details:", error);
+      } finally {
+        setLoading(false);
+      }
     }
-    moodRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    getAuthorData();
+  }, [id]);
+
+  const handleUpvote = () => {
+    if (hasUpvoted) {
+      setUpvotes(prev => prev - 1);
+      setHasUpvoted(false);
+    } else {
+      setUpvotes(prev => prev + 1);
+      setHasUpvoted(true);
+    }
   };
 
-  useEffect(() => {
-    const onScroll = () => {
-      const el = heroRef.current;
-      if (!el) return setHeroOpacity(0);
-      const rect = el.getBoundingClientRect();
-      const height = rect.height || window.innerHeight * 0.5;
-      const scrolled = Math.min(Math.max(-rect.top, 0), height);
-      const t = scrolled / height;
-      setHeroOpacity(1 - t);
-    };
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <p className="text-slate-500 font-body text-xs tracking-widest uppercase animate-pulse">Loading Identity...</p>
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    const calc = () => {
-      const w = window.innerWidth;
-      if (w < 640) setBgPos("10% center");
-      else if (w < 1024) setBgPos("16% center");
-      else setBgPos("20% center");
-    };
-    calc();
-    window.addEventListener("resize", calc);
-    return () => window.removeEventListener("resize", calc);
-  }, []);
+  if (!author) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <p className="text-slate-500 font-body text-sm">Creator index not populated.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="relative min-h-screen text-slate-100 overflow-hidden" style={{ background: 'linear-gradient(180deg, #0b0d12 0%, #111318 28%, #16151b 65%, #141418 100%)' }}>
+    <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-amber-500/20 pb-28 flex flex-col justify-start items-center">
       <Navbar />
+      
+      <main className="mt-14 pt-12 px-4 max-w-md w-full mx-auto block space-y-6">
+        
+        {/* Seamless Profile Card */}
+        <div className="relative overflow-hidden rounded-[28px] border border-white/5 bg-gradient-to-b from-white/[0.05] to-transparent p-6 shadow-xl">
+          <div className="flex items-center gap-4 mb-4">
+            {author.imageUrl ? (
+              <img 
+                src={author.imageUrl} 
+                alt={author.name}
+                className="w-16 h-16 rounded-2xl object-cover border border-white/10 shadow-inner flex-shrink-0"
+              />
+            ) : (
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-md flex-shrink-0"
+                style={{ backgroundColor: author.avatarColor || "#4a5568" }}
+              >
+                {author.avatar || author.name.charAt(0)}
+              </div>
+            )}
 
-      <section
-        ref={heroRef}
-        className="relative w-full h-[52vh] sm:h-[58vh] lg:h-[54vh] overflow-hidden"
-        style={{ backgroundImage: "url('/hero-window.jpg')", backgroundSize: 'cover', backgroundPosition: bgPos, opacity: heroOpacity }}
-      >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.05),transparent_28%),radial-gradient(circle_at_center,_rgba(255,255,255,0.02),transparent_40%)] opacity-80 pointer-events-none" />
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/75 via-slate-950/45 to-transparent" style={{ opacity: heroOpacity }} />
-        <div className="absolute inset-x-0 bottom-0 h-72 pointer-events-none" style={{ background: 'linear-gradient(180deg, rgba(11,13,18,0), rgba(17,19,24,0.7) 35%, rgba(20,20,24,0.94) 100%)' }} />
-        <div className="absolute inset-x-0 bottom-0 h-48 pointer-events-none" style={{ background: 'radial-gradient(circle at 50% 10%, rgba(255,180,100,0.06), transparent 32%)' }} />
+            <div className="min-w-0">
+              <h1 className="font-display text-xl font-bold text-white tracking-tight">
+                {author.name}
+              </h1>
+              <p className="text-[10px] text-amber-400 font-body uppercase tracking-wider mt-0.5 flex items-center gap-1">
+                <span className="h-1 w-1 rounded-full bg-emerald-400 animate-pulse" />
+                Verified Storyflick Creator
+              </p>
+            </div>
+          </div>
 
-        <main className="relative z-10 pt-14 pb-6 px-4 max-w-lg mx-auto">
-          <div className="relative z-10 max-w-sm">
-            <h1 className="font-display text-5xl sm:text-6xl font-semibold text-white leading-tight drop-shadow-[0_18px_35px_rgba(0,0,0,0.35)]">
-              Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, {user ? user.name.split(" ")[0] : "Reader"}
-            </h1>
+          <p className="font-body text-xs text-slate-400 leading-relaxed mb-6">
+            {author.bio || "This dynamic storyteller hasn't added a biography manifesto yet."}
+          </p>
 
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-200 shadow-sm mt-6 mb-3">
-              <span className="text-ink-100 font-medium">{ambientLabel}</span>
+          {/* Quick Metrics Grid */}
+          <div className="grid grid-cols-3 border-t border-white/5 pt-4 gap-2 text-center">
+            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-white/[0.01]">
+              <Users size={14} className="text-slate-500 mb-0.5" />
+              <span className="text-xs font-bold text-slate-200">{author.followers || 0}</span>
+              <span className="text-[8px] text-slate-500 uppercase tracking-wider">Followers</span>
+            </div>
+            
+            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-white/[0.01]">
+              <BookOpen size={14} className="text-slate-500 mb-0.5" />
+              <span className="text-xs font-bold text-slate-200">{stories.length}</span>
+              <span className="text-[8px] text-slate-500 uppercase tracking-wider">Stories</span>
             </div>
 
-            <div className="mt-4 space-y-3 text-slate-200">
-              <p className="font-body text-base italic leading-relaxed drop-shadow-[0_10px_25px_rgba(0,0,0,0.22)]">{ambientMessage}</p>
-              <p className="font-body text-base italic leading-relaxed drop-shadow-[0_10px_25px_rgba(0,0,0,0.22)]">Step away from the noise.</p>
-              <p className="font-body text-base italic leading-relaxed drop-shadow-[0_10px_25px_rgba(0,0,0,0.22)]">Open a story.</p>
-            </div>
-
-            <button onClick={handleStepInside} className="mt-6 px-5 py-3 rounded-full border border-slate-200/20 bg-[#FDFBF7] text-black text-sm font-semibold shadow-xl hover:bg-[#f5f1e6] transition">
-              Step Inside →
+            <button
+              onClick={handleUpvote}
+              className={`flex flex-col items-center justify-center p-2 rounded-xl border transition-all duration-200 ${
+                hasUpvoted 
+                  ? "bg-rose-500/10 border-rose-500/20 text-rose-400 scale-[0.97]" 
+                  : "bg-white/5 border-transparent text-slate-400 hover:bg-white/10"
+              }`}
+            >
+              <Heart size={14} className={`${hasUpvoted ? "fill-rose-400 text-rose-400" : "text-slate-500"}`} />
+              <span className="text-xs font-bold">{upvotes}</span>
+              <span className="text-[8px] uppercase tracking-wider">{hasUpvoted ? "Upvoted!" : "Upvote"}</span>
             </button>
           </div>
-        </main>
-      </section>
-
-      <main className="relative z-10 pb-32 px-4 max-w-lg mx-auto">
-        {!selectedMood && (
-          <section ref={featuredRef} className="mb-4 mt-0">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp size={13} className="text-gold-400" />
-              <span className="text-xs font-body font-medium text-ink-300 tracking-wide uppercase">Featured</span>
-            </div>
-            <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
-              {featured.map((story, i) => (
-                <div key={story.id} className="flex-shrink-0 w-[66vw] max-w-[240px]">
-                  <StoryCard story={story} index={i} hideActions />
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <div ref={moodRef} className="mb-5">
-          <MoodFilter selected={selectedMood} onSelect={setSelectedMood} />
         </div>
 
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-xs font-body font-medium text-ink-300 tracking-wide uppercase">
-              {selectedMood ? `${filtered.length} stories` : "All Stories"}
-            </span>
-            {/* Show a subtle loading indicator while Sanity is fetching */}
-            {loading && (
-              <span className="text-xs text-ink-500 font-body ml-1">· loading…</span>
+        {/* Anthology Feed Header */}
+        <div className="flex flex-col gap-3">
+          <h2 className="font-body text-[10px] font-bold text-slate-500 uppercase tracking-[0.25em] px-1 pt-2">
+            Published Works
+          </h2>
+          
+          <div className="flex flex-col gap-3">
+            {stories.length > 0 ? (
+              stories.map((story) => {
+                const mood = MOOD_CONFIG[story.mood] || { emoji: "📖", label: "Story", accent: "#94a3b8" };
+                return (
+                  <Link 
+                    key={story.id} 
+                    href={`/read/${encodeURIComponent(story.id)}`}
+                    className="group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 hover:bg-white/[0.05] hover:border-white/10 hover:-translate-y-0.5 transition-all duration-300 flex flex-col gap-2"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-widest text-slate-400">
+                        <span>{mood.emoji}</span>
+                        <span style={{ color: mood.accent }}>{mood.label}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                        <Clock size={11} />
+                        <span>{story.totalReadMinutes}m</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="font-display text-base font-semibold text-slate-100 group-hover:text-amber-200 transition-colors line-clamp-1">
+                        {story.title}
+                      </h3>
+                      <p className="text-xs text-slate-400 font-body line-clamp-2 mt-0.5 leading-relaxed">
+                        {story.tagline}
+                      </p>
+                    </div>
+                  </Link>
+                );
+              })
+            ) : (
+              <p className="text-xs text-slate-500 italic text-center py-6">No stories published yet by this author.</p>
             )}
           </div>
+        </div>
 
-          {filtered.length === 0 ? (
-            <div className="text-center py-16 text-ink-500">
-              <p className="text-3xl mb-3">🌑</p>
-              <p className="font-body text-sm">No stories in this mood yet</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {filtered.map((story, i) => (
-                <StoryCard key={story.id} story={story} index={i} />
-              ))}
-            </div>
-          )}
-        </section>
       </main>
-
-      {showOnboarding && (
-        <Onboarding onClose={() => setShowOnboarding(false)} />
-      )}
     </div>
   );
 }
