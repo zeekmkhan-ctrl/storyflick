@@ -44,8 +44,8 @@ export default async function HomePage({
 }) {
   const resolvedParams = await searchParams;
   
-  // ⚡ FIXED: Explicit type annotation locks this variable assignment to 'Mood | null'
-  const selectedMood: Mood | null = resolvedParams.mood ? (resolvedParams.mood as Mood) : null;
+  // Cast safely right out of the URL block
+  const selectedMood = (resolvedParams.mood as Mood) || null;
   
   const stories = await getStories();
   
@@ -77,7 +77,8 @@ export default async function HomePage({
 
       <main className="relative z-10 pb-32 px-4 max-w-lg mx-auto mt-6 space-y-8">
         <div className="mb-2">
-          <MoodFilter selected={selectedMood} onSelect={undefined} />
+          {/* ⚡ THE FIX: Assert type directly on the prop parameter to bypass stale type caching */}
+          <MoodFilter selected={selectedMood as Mood | null} onSelect={undefined} />
         </div>
 
         {/* Featured Section */}
