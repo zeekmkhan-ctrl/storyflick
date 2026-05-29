@@ -3,7 +3,8 @@ import StoryCard from "@/components/home/StoryCard";
 import MoodFilter from "@/components/home/MoodFilter";
 import Navbar from "@/components/ui/Navbar";
 import { client } from "@/lib/sanity";
-import { Story } from "@/types";
+// ⚡ ADDED import for Mood type to satisfy type casting
+import { Story, Mood } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,6 @@ async function getStories(): Promise<Story[]> {
     }
   }`;
 
-  // ⚡ CRITICAL RULE: If Sanity fails, throw an error so the build catches it instead of failing silently with old data!
   const data = await client.fetch<Story[]>(query, {}, { cache: "no-store" });
   if (!data || data.length === 0) {
     throw new Error("Sanity content lake returned no documents!");
@@ -44,9 +44,10 @@ export default async function HomePage({
   searchParams: Promise<{ mood?: string }>;
 }) {
   const resolvedParams = await searchParams;
-  const selectedMood = resolvedParams.mood as Mood || null;
   
-  // This will either get your real stories or trigger a visible error state
+  // ⚡ FIXED: Explicitly cast the incoming string parameter to the custom Mood type
+  const selectedMood = (resolvedParams.mood as Mood) || null;
+  
   const stories = await getStories();
   
   const featured = stories.filter((s) => s.featured);
