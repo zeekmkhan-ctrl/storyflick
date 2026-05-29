@@ -1,19 +1,51 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Flame, BookOpen, Star, Award, LogOut, ChevronRight } from "lucide-react";
 import Navbar from "@/components/ui/Navbar";
 import Onboarding from "@/components/ui/Onboarding";
 import { useUser } from "@/lib/userContext";
-import { STORIES } from "@/data/stories";
+import { client } from "@/lib/sanity";
 import { MOOD_CONFIG } from "@/lib/moods";
-import { Mood } from "@/types";
+import { Mood, Story } from "@/types";
 import Link from "next/link";
 
 export default function ProfilePage() {
   const { user, setUser } = useUser();
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [completedStories, setCompletedStories] = useState<Story[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
 
-  const completedStories = STORIES.filter((s) => user?.completedStories.includes(s.id));
+  // Fetch real-time data from Sanity for completed stories
+  useEffect(() => {
+    async function fetchCompletedStories() {
+      if (!user?.completedStories || user.completedStories.length === 0) {
+        setCompletedStories([]);
+        setLoadingHistory(false);
+        return;
+      }
+
+      const query = `*[_type == "story" && id in $completedIds] {
+        id,
+        title,
+        mood,
+        author {
+          name
+        }
+      }`;
+
+      try {
+        const data = await client.fetch<Story[]>(query, { completedIds: user.completedStories }, { cache: "no-store" });
+        setCompletedStories(data || []);
+      } catch (error) {
+        console.error("Failed to fetch profile reading history from Sanity:", error);
+      } finally {
+        setLoadingHistory(false);
+      }
+    }
+
+    fetchCompletedStories();
+  }, [user?.completedStories]);
+
   const joinDate = user ? new Date(user.joinedDate).toLocaleDateString("en-IN", { month: "long", year: "numeric" }) : "";
 
   const stats = [
@@ -91,6 +123,7 @@ export default function ProfilePage() {
             <div className="flex flex-wrap gap-2">
               {user.moodPreferences.map((mood) => {
                 const config = MOOD_CONFIG[mood as Mood];
+                if (!config) return null;
                 return (
                   <span
                     key={mood}
@@ -110,14 +143,15 @@ export default function ProfilePage() {
         )}
 
         {/* Reading history */}
-        {completedStories.length > 0 && (
+        {!loadingHistory && completedStories.length > 0 && (
           <div className="mb-6">
             <h2 className="font-body text-xs font-medium text-ink-400 uppercase tracking-widest mb-3">
               Completed Stories
             </h2>
             <div className="flex flex-col gap-2">
               {completedStories.map((story) => {
-                const mood = MOOD_CONFIG[story.mood];
+                const mood = MOOD_CONFIG[story.mood] || { emoji: "📖" };
+                const authorName = story.author?.name ?? "Guest Contributor";
                 return (
                   <Link
                     key={story.id}
@@ -127,7 +161,7 @@ export default function ProfilePage() {
                     <span className="text-xl">{mood.emoji}</span>
                     <div className="flex-1 min-w-0">
                       <p className="font-display text-sm font-semibold text-white truncate">{story.title}</p>
-                      <p className="font-body text-xs text-ink-400">{story.author.name}</p>
+                      <p className="font-body text-xs text-ink-400">{authorName}</p>
                     </div>
                     <ChevronRight size={14} className="text-ink-600" />
                   </Link>

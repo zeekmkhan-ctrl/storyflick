@@ -5,7 +5,6 @@ import Navbar from "@/components/ui/Navbar";
 import { client } from "@/lib/sanity";
 import { Story } from "@/types";
 
-// ⚡ FORCE BYPASS BUILD CACHE: Force Next.js to stream fresh database entries on every request
 export const dynamic = "force-dynamic";
 
 async function getStories(): Promise<Story[]> {
@@ -31,13 +30,12 @@ async function getStories(): Promise<Story[]> {
     }
   }`;
 
-  try {
-    const data = await client.fetch<Story[]>(query, {}, { cache: "no-store" });
-    return data || [];
-  } catch (error) {
-    console.error("Sanity connection pool fetch error:", error);
-    return [];
+  // ⚡ CRITICAL RULE: If Sanity fails, throw an error so the build catches it instead of failing silently with old data!
+  const data = await client.fetch<Story[]>(query, {}, { cache: "no-store" });
+  if (!data || data.length === 0) {
+    throw new Error("Sanity content lake returned no documents!");
   }
+  return data;
 }
 
 export default async function HomePage({
@@ -48,6 +46,7 @@ export default async function HomePage({
   const resolvedParams = await searchParams;
   const selectedMood = resolvedParams.mood || null;
   
+  // This will either get your real stories or trigger a visible error state
   const stories = await getStories();
   
   const featured = stories.filter((s) => s.featured);
@@ -57,7 +56,6 @@ export default async function HomePage({
 
   const now = new Date();
   const hour = now.getHours();
-  
   const ambientLabel = hour >= 21 ? "Night" : hour >= 17 ? "Late evening" : hour >= 12 ? "Afternoon" : "Morning";
   const ambientMessage = hour >= 21 ? "A quiet story before sleep?" : hour >= 17 ? "Perfect weather for a story." : hour >= 12 ? "The world can wait. Read awhile." : "Slow mornings deserve gentle stories.";
 
@@ -65,7 +63,6 @@ export default async function HomePage({
     <div className="relative min-h-screen text-slate-100 overflow-hidden bg-slate-950">
       <Navbar />
 
-      {/* Atmospheric Background Hero Banner Header */}
       <section className="relative w-full h-[38vh] flex flex-col justify-center items-start px-6 max-w-lg mx-auto border-b border-white/5 bg-gradient-to-b from-white/[0.02] to-transparent pt-16">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-slate-300 mb-2">
           <span>{ambientLabel}</span>
@@ -79,13 +76,11 @@ export default async function HomePage({
       </section>
 
       <main className="relative z-10 pb-32 px-4 max-w-lg mx-auto mt-6 space-y-8">
-        {/* Mood filter Category selection bar */}
         <div className="mb-2">
-          <MoodFilter selected={selectedMood} onSelect={undefined} /> 
-          {/* Note: In server components, filtering updates URL searchParams directly */}
+          <MoodFilter selected={selectedMood} onSelect={undefined} />
         </div>
 
-        {/* Featured Stories Carousel track block */}
+        {/* Featured Section */}
         {!selectedMood && featured.length > 0 && (
           <section className="space-y-3">
             <div className="flex items-center gap-2">
@@ -104,7 +99,7 @@ export default async function HomePage({
           </section>
         )}
 
-        {/* Anthology Dynamic Layout Stream Grid */}
+        {/* Regular Stream */}
         <section className="space-y-4">
           <div className="flex items-center justify-between border-b border-white/5 pb-2">
             <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">
@@ -113,18 +108,11 @@ export default async function HomePage({
             <span className="text-[10px] font-mono text-slate-500">{filtered.length} items</span>
           </div>
 
-          {filtered.length === 0 ? (
-            <div className="text-center py-16 text-slate-600">
-              <p className="text-2xl mb-2">🌑</p>
-              <p className="text-xs italic">No collection records found in this category.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {filtered.map((story, i) => (
-                <StoryCard key={story.id} story={story} index={i} />
-              ))}
-            </div>
-          )}
+          <div className="grid grid-cols-1 gap-4">
+            {filtered.map((story, i) => (
+              <StoryCard key={story.id} story={story} index={i} />
+            ))}
+          </div>
         </section>
       </main>
     </div>
