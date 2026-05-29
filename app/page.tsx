@@ -3,7 +3,6 @@ import StoryCard from "@/components/home/StoryCard";
 import MoodFilter from "@/components/home/MoodFilter";
 import Navbar from "@/components/ui/Navbar";
 import { client } from "@/lib/sanity";
-// ⚡ ADDED import for Mood type to satisfy type casting
 import { Story, Mood } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -45,8 +44,8 @@ export default async function HomePage({
 }) {
   const resolvedParams = await searchParams;
   
-  // ⚡ FIXED: Explicitly cast the incoming string parameter to the custom Mood type
-  const selectedMood = (resolvedParams.mood as Mood) || null;
+  // ⚡ FIXED: Explicit type annotation locks this variable assignment to 'Mood | null'
+  const selectedMood: Mood | null = resolvedParams.mood ? (resolvedParams.mood as Mood) : null;
   
   const stories = await getStories();
   
