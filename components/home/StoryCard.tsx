@@ -14,7 +14,7 @@ interface StoryCardProps {
 }
 
 export default function StoryCard({ story, index = 0, hideActions = false }: StoryCardProps) {
-  // ⚡ FIX 1: Component lifecycle state to safely track client-side mounting
+  // ⚡ Component lifecycle state to safely track client-side mounting
   const [mounted, setMounted] = useState(false);
   
   useEffect(() => {
@@ -31,7 +31,7 @@ export default function StoryCard({ story, index = 0, hideActions = false }: Sto
     hasDisliked,
   } = useUser();
 
-  const mood = MOOD_CONFIG[story.mood];
+  const mood = MOOD_CONFIG[story.mood] || { emoji: "📖", label: "Story", accent: "#94a3b8" };
   const bookmarked = isBookmarked(story.id);
   const completed = isCompleted(story.id);
   const liked = hasLiked(story.id);
@@ -43,6 +43,11 @@ export default function StoryCard({ story, index = 0, hideActions = false }: Sto
     ? `${Math.round((storyCounts.likes / totalVotes) * 100)}% approval`
     : "New";
   const showNewBadge = hideActions && approvalLabel === "New";
+
+  // Safe variables fallback map if author details are left unpopulated in Sanity
+  const authorName = story.author?.name ?? "Guest Contributor";
+  const authorAvatar = story.author?.avatar ?? "G";
+  const authorColor = story.author?.avatarColor ?? "#4a5568";
 
   const isLastMonsoon = story.id === "the-last-monsoon";
   const outerCardClasses = `relative overflow-hidden rounded-[28px] border border-white/10 bg-white/10 shadow-[0_24px_80px_-40px_rgba(0,0,0,0.35)] ${isLastMonsoon ? "backdrop-blur-md bg-white/[0.03] border-white/[0.05]" : "backdrop-blur-xl"} ${hideActions ? "min-h-[190px]" : "min-h-[280px]"} transition-transform duration-300 hover:-translate-y-0.5 flex flex-col`;
@@ -65,7 +70,9 @@ export default function StoryCard({ story, index = 0, hideActions = false }: Sto
               <span style={{ color: mood.accent }}>{mood.label}</span>
             </div>
             <div className={`flex items-center gap-2 ${hideActions ? "flex-nowrap" : ""}`}>
-              {!hideActions && completed && (
+              
+              {/* ⚡ FIX: Added `mounted` condition block layer check to protect badge layout boundaries */}
+              {!hideActions && mounted && completed && (
                 <span
                   className="inline-flex items-center justify-center h-7 w-7 shrink-0 rounded-full border border-gold-300/25 bg-gold-500/20 text-gold-300"
                   title="Completed"
@@ -74,6 +81,7 @@ export default function StoryCard({ story, index = 0, hideActions = false }: Sto
                   <Check size={14} />
                 </span>
               )}
+
               {showNewBadge ? (
                 <div className={`inline-flex items-center gap-1 rounded-full ${hideActions ? "px-2 py-0.5 text-[8px]" : "px-3 py-1 text-[10px]"} uppercase tracking-[0.18em] bg-gold-500 text-ink-950 font-semibold`}>
                   <span>New</span>
@@ -106,18 +114,18 @@ export default function StoryCard({ story, index = 0, hideActions = false }: Sto
             
             {!hideActions ? (
               <Link
-                href={`/author/${story.author.id}`}
+                href={`/author/${story.author?.id ?? "unknown"}`}
                 className="flex items-center gap-3 min-w-0 group/author hover:opacity-80 transition relative z-30"
               >
                 <div
-                  className="flex h-10 w-10 items-center justify-center rounded-3xl text-sm font-semibold text-white transition-transform group-hover/author:scale-105"
-                  style={{ backgroundColor: story.author.avatarColor }}
+                  className="flex h-10 w-10 items-center justify-center rounded-3xl text-sm font-semibold text-white transition-transform group-hover/author:scale-105-shrink-0"
+                  style={{ backgroundColor: authorColor }}
                 >
-                  {story.author.avatar}
+                  {authorAvatar}
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-slate-100 truncate group-hover/author:text-amber-200 transition-colors">
-                    {story.author.name}
+                    {authorName}
                   </p>
                   <p className="text-xs text-slate-500">Author</p>
                 </div>
@@ -172,7 +180,6 @@ export default function StoryCard({ story, index = 0, hideActions = false }: Sto
                 {storyCounts.dislikes}
               </button>
 
-              {/* ⚡ FIX 2: Wrapped layout condition with `mounted` state check to isolate structural hydration */}
               {mounted && user && (
                 <button
                   type="button"
@@ -197,4 +204,4 @@ export default function StoryCard({ story, index = 0, hideActions = false }: Sto
       </div>
     </div>
   );
-}
+  }

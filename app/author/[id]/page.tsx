@@ -29,14 +29,13 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
   useEffect(() => {
     async function getAuthorData() {
       try {
-        // ⚡ THE FIX: Modified query filter to map across dereferenced pointer links (author->id or author->_id)
-        const query = `*[_type == "story" && (author->id == $id || author->_id == $id)] | order(_createdAt desc) {
+        const query = `*[_type == "story" && author.id == $id] | order(_createdAt desc) {
           "id": id,
           title,
           tagline,
           mood,
-          author-> {
-            "id": coalesce(id, _id),
+          author {
+            id,
             name,
             bio,
             avatar,
@@ -51,28 +50,11 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
 
         const fetchedStories = await client.fetch(query, { id });
         
-        if (fetchedStories && fetchedStories.length > 0) {
+        if (fetchedStories.length > 0) {
           const authorInfo = fetchedStories[0].author;
           setAuthor(authorInfo);
           setStories(fetchedStories);
           setUpvotes(Math.floor((authorInfo.followers || 0) * 1.4) + 12);
-        } else {
-          // Fallback backup: If an author exists but hasn't published any stories yet, look them up directly
-          const directAuthorQuery = `*[_type == "author" && (id == $id || _id == $id)][0] {
-            "id": coalesce(id, _id),
-            name,
-            bio,
-            avatar,
-            avatarColor,
-            followers,
-            "imageUrl": image.asset->url
-          }`;
-          const directAuthor = await client.fetch(directAuthorQuery, { id });
-          if (directAuthor) {
-            setAuthor(directAuthor);
-            setStories([]);
-            setUpvotes(Math.floor((directAuthor.followers || 0) * 1.4) + 12);
-          }
         }
       } catch (error) {
         console.error("Error fetching author details:", error);
@@ -114,10 +96,16 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
     <div className="min-h-screen bg-slate-950 text-slate-100 selection:bg-amber-500/20 pb-28 flex flex-col justify-start items-center">
       <Navbar />
       
+      {/* UPDATED MAIN TAG:
+        - Changed pt-24 to pt-12 to lift it directly up near the Navbar boundary
+        - Added mt-14 to smoothly prevent any absolute overlap with the header text
+        - Replaced flex centering with a clean block layout flow
+      */}
       <main className="mt-14 pt-12 px-4 max-w-md w-full mx-auto block space-y-6">
         
         {/* Seamless Profile Card */}
         <div className="relative overflow-hidden rounded-[28px] border border-white/5 bg-gradient-to-b from-white/[0.05] to-transparent p-6 shadow-xl">
+          
           <div className="flex items-center gap-4 mb-4">
             {author.imageUrl ? (
               <img 
@@ -128,9 +116,9 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
             ) : (
               <div
                 className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-md flex-shrink-0"
-                style={{ backgroundColor: author.avatarColor || "#4a5568" }}
+                style={{ backgroundColor: author.avatarColor }}
               >
-                {author.avatar || author.name.charAt(0)}
+                {author.avatar}
               </div>
             )}
 
@@ -176,6 +164,7 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
               <span className="text-[8px] uppercase tracking-wider">{hasUpvoted ? "Upvoted!" : "Upvote"}</span>
             </button>
           </div>
+
         </div>
 
         {/* Anthology Feed Header */}
@@ -185,40 +174,36 @@ export default function AuthorPage({ params }: { params: Promise<{ id: string }>
           </h2>
           
           <div className="flex flex-col gap-3">
-            {stories.length > 0 ? (
-              stories.map((story) => {
-                const mood = MOOD_CONFIG[story.mood] || { emoji: "📖", label: "Story", accent: "#94a3b8" };
-                return (
-                  <Link 
-                    key={story.id} 
-                    href={`/read/${encodeURIComponent(story.id)}`}
-                    className="group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 hover:bg-white/[0.05] hover:border-white/10 hover:-translate-y-0.5 transition-all duration-300 flex flex-col gap-2"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-widest text-slate-400">
-                        <span>{mood.emoji}</span>
-                        <span style={{ color: mood.accent }}>{mood.label}</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                        <Clock size={11} />
-                        <span>{story.totalReadMinutes}m</span>
-                      </div>
+            {stories.map((story) => {
+              const mood = MOOD_CONFIG[story.mood] || { emoji: "📖", label: "Story", accent: "#94a3b8" };
+              return (
+                <Link 
+                  key={story.id} 
+                  href={`/read/${encodeURIComponent(story.id)}`}
+                  className="group relative overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 hover:bg-white/[0.05] hover:border-white/10 hover:-translate-y-0.5 transition-all duration-300 flex flex-col gap-2"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] uppercase tracking-widest text-slate-400">
+                      <span>{mood.emoji}</span>
+                      <span style={{ color: mood.accent }}>{mood.label}</span>
                     </div>
+                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
+                      <Clock size={11} />
+                      <span>{story.totalReadMinutes}m</span>
+                    </div>
+                  </div>
 
-                    <div>
-                      <h3 className="font-display text-base font-semibold text-slate-100 group-hover:text-amber-200 transition-colors line-clamp-1">
-                        {story.title}
-                      </h3>
-                      <p className="text-xs text-slate-400 font-body line-clamp-2 mt-0.5 leading-relaxed">
-                        {story.tagline}
-                      </p>
-                    </div>
-                  </Link>
-                );
-              })
-            ) : (
-              <p className="text-xs text-slate-500 italic text-center py-6">No stories published yet by this author.</p>
-            )}
+                  <div>
+                    <h3 className="font-display text-base font-semibold text-slate-100 group-hover:text-amber-200 transition-colors line-clamp-1">
+                      {story.title}
+                    </h3>
+                    <p className="text-xs text-slate-400 font-body line-clamp-2 mt-0.5 leading-relaxed">
+                      {story.tagline}
+                    </p>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </div>
 
