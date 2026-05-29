@@ -7,6 +7,13 @@ import { Story, Mood } from "@/types";
 
 export const dynamic = "force-dynamic";
 
+// ✅ Allowed moods (safe guard source of truth)
+const validMoods: Mood[] = ["happy", "sad", "romantic", "angry"];
+
+function isMood(value: string): value is Mood {
+  return validMoods.includes(value as Mood);
+}
+
 async function getStories(): Promise<Story[]> {
   const query = `*[_type == "story"] | order(_createdAt desc) {
     id,
@@ -31,57 +38,88 @@ async function getStories(): Promise<Story[]> {
   }`;
 
   const data = await client.fetch<Story[]>(query, {}, { cache: "no-store" });
+
   if (!data || data.length === 0) {
     throw new Error("Sanity content lake returned no documents!");
   }
+
   return data;
 }
 
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ mood?: string }>;
+  searchParams?: { mood?: string };
 }) {
-  const resolvedParams = await searchParams;
-  
-  // Cast safely right out of the URL block
-  const selectedMood = (resolvedParams.mood as Mood) || null;
-  
+  const moodParam = searchParams?.mood;
+
+  // ✅ safe conversion (NO type assertion hacks)
+  const selectedMood: Mood | null =
+    moodParam && isMood(moodParam) ? moodParam : null;
+
   const stories = await getStories();
-  
+
   const featured = stories.filter((s) => s.featured);
+
   const filtered = selectedMood
     ? stories.filter((s) => s.mood === selectedMood)
     : stories;
 
   const now = new Date();
   const hour = now.getHours();
-  const ambientLabel = hour >= 21 ? "Night" : hour >= 17 ? "Late evening" : hour >= 12 ? "Afternoon" : "Morning";
-  const ambientMessage = hour >= 21 ? "A quiet story before sleep?" : hour >= 17 ? "Perfect weather for a story." : hour >= 12 ? "The world can wait. Read awhile." : "Slow mornings deserve gentle stories.";
+
+  const ambientLabel =
+    hour >= 21
+      ? "Night"
+      : hour >= 17
+      ? "Late evening"
+      : hour >= 12
+      ? "Afternoon"
+      : "Morning";
+
+  const ambientMessage =
+    hour >= 21
+      ? "A quiet story before sleep?"
+      : hour >= 17
+      ? "Perfect weather for a story."
+      : hour >= 12
+      ? "The world can wait. Read awhile."
+      : "Slow mornings deserve gentle stories.";
 
   return (
     <div className="relative min-h-screen text-slate-100 overflow-hidden bg-slate-950">
       <Navbar />
 
+      {/* HERO */}
       <section className="relative w-full h-[38vh] flex flex-col justify-center items-start px-6 max-w-lg mx-auto border-b border-white/5 bg-gradient-to-b from-white/[0.02] to-transparent pt-16">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-slate-300 mb-2">
           <span>{ambientLabel}</span>
         </div>
+
         <h1 className="font-display text-4xl font-bold text-white tracking-tight leading-tight">
           Good {ambientLabel.toLowerCase()}, Reader
         </h1>
+
         <p className="font-body text-sm text-slate-400 mt-2 italic">
           "{ambientMessage}"
         </p>
       </section>
 
+      {/* MAIN */}
       <main className="relative z-10 pb-32 px-4 max-w-lg mx-auto mt-6 space-y-8">
+        
+        {/* FILTER */}
         <div className="mb-2">
-          {/* ⚡ THE FIX: Assert type directly on the prop parameter to bypass stale type caching */}
-          <MoodFilter selected={selectedMood as Mood | null} onSelect={undefined} />
+          <MoodFilter
+            selected={selectedMood}
+            onSelect={(mood) => {
+              // Optional: connect to routing later
+              console.log("Selected mood:", mood);
+            }}
+          />
         </div>
 
-        {/* Featured Section */}
+        {/* FEATURED */}
         {!selectedMood && featured.length > 0 && (
           <section className="space-y-3">
             <div className="flex items-center gap-2">
@@ -90,9 +128,16 @@ export default async function HomePage({
                 Featured Works
               </span>
             </div>
-            <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
+
+            <div
+              className="flex gap-3 overflow-x-auto pb-2"
+              style={{ scrollbarWidth: "none" }}
+            >
               {featured.map((story, i) => (
-                <div key={story.id} className="flex-shrink-0 w-[75vw] max-w-[260px]">
+                <div
+                  key={story.id}
+                  className="flex-shrink-0 w-[75vw] max-w-[260px]"
+                >
                   <StoryCard story={story} index={i} hideActions />
                 </div>
               ))}
@@ -100,13 +145,16 @@ export default async function HomePage({
           </section>
         )}
 
-        {/* Regular Stream */}
+        {/* STORIES */}
         <section className="space-y-4">
           <div className="flex items-center justify-between border-b border-white/5 pb-2">
             <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">
               {selectedMood ? `${selectedMood} Stories` : "All Anthologies"}
             </span>
-            <span className="text-[10px] font-mono text-slate-500">{filtered.length} items</span>
+
+            <span className="text-[10px] font-mono text-slate-500">
+              {filtered.length} items
+            </span>
           </div>
 
           <div className="grid grid-cols-1 gap-4">
