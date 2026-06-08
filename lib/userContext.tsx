@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
 import { UserProfile, StoryReaction } from "@/types";
 import {
   getUser,
@@ -25,7 +25,12 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | null>(null);
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUserState] = useState<UserProfile | null>(() => getUser());
+  const [user, setUserState] = useState<UserProfile | null>(null);
+
+  // Load persisted user after mount — getUser() is unavailable during SSR
+  useEffect(() => {
+    setUserState(getUser());
+  }, []);
 
   const refreshUser = useCallback(() => {
     setUserState(getUser());

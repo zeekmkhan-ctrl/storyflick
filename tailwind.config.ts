@@ -48,6 +48,9 @@ const config: Config = {
           400: "#6ed4a0",
         },
         parchment: "#f5f0e8",
+        "hero-cta": "#FDFBF7",
+        "hero-cta-text": "#0b0d12",
+        "hero-cta-hover": "#f0ebe0",
       },
       animation: {
         "fade-up": "fadeUp 0.6s ease forwards",

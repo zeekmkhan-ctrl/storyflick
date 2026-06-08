@@ -62,39 +62,48 @@ function normalizeStory(story: RawStory | null): any {
 }
 
 async function getStory(storyId: string) {
-  const query = `*[_type == "story" && id == $id][0] {
-    "id": id,
-    title,
-    tagline,
-    mood,
-    totalReadMinutes,
-    publishedAt,
-    featured,
-    tags,
-    author->{
-      id,
-      name,
-      bio,
-      avatar,
-      avatarColor
-    },
-    scenes[] {
-      id,
-      sceneNumber,
-      ambientEmoji,
-      bgClass,
-      "sceneImageUrl": sceneImage.asset->url,
-      sceneImage {
-        asset->{
-          url
-        }
-      },
-      text
-    }
-  }`;
+  if (!storyId || typeof storyId !== 'string') {
+    return null;
+  }
 
-  const story = await client.fetch(query, { id: storyId }).catch(() => null);
-  return normalizeStory(story);
+  try {
+    const query = `*[_type == "story" && id == $storyId][0] {
+      "id": id,
+      title,
+      tagline,
+      mood,
+      totalReadMinutes,
+      publishedAt,
+      featured,
+      tags,
+      author->{
+        id,
+        name,
+        bio,
+        avatar,
+        avatarColor
+      },
+      scenes[] {
+        id,
+        sceneNumber,
+        ambientEmoji,
+        bgClass,
+        "sceneImageUrl": sceneImage.asset->url,
+        sceneImage {
+          asset->{
+            url
+          }
+        },
+        text
+      }
+    }`;
+
+    const story = await client.fetch(query, { storyId });
+    return normalizeStory(story);
+  } catch (error) {
+    console.error("Failed to fetch story:", error);
+    return null;
+  }
 }
 
 export async function generateStaticParams() {

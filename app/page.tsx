@@ -1,14 +1,24 @@
 import { TrendingUp } from "lucide-react";
+import Hero from "@/components/home/Hero";
 import StoryCard from "@/components/home/StoryCard";
-import MoodFilter from "@/components/home/MoodFilter";
+import MoodFilterWrapper from "@/components/home/MoodFilterWrapper";
 import Navbar from "@/components/ui/Navbar";
 import { client } from "@/lib/sanity";
 import { Story, Mood } from "@/types";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
-// ✅ Allowed moods (safe guard source of truth)
-const validMoods: Mood[] = ["happy", "sad", "romantic", "angry"];
+// ✅ Valid moods from schema (source of truth)
+const validMoods: Mood[] = [
+  "melancholic",
+  "thrilling",
+  "romantic",
+  "humorous",
+  "mysterious",
+  "hopeful",
+  "dark",
+  "warm",
+];
 
 function isMood(value: string): value is Mood {
   return validMoods.includes(value as Mood);
@@ -37,7 +47,7 @@ async function getStories(): Promise<Story[]> {
     }
   }`;
 
-  const data = await client.fetch<Story[]>(query, {}, { cache: "no-store" });
+  const data = await client.fetch<Story[]>(query);
 
   if (!data || data.length === 0) {
     throw new Error("Sanity content lake returned no documents!");
@@ -49,9 +59,10 @@ async function getStories(): Promise<Story[]> {
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams?: { mood?: string };
+  searchParams: Promise<{ mood?: string }>;
 }) {
-  const moodParam = searchParams?.mood;
+  const params = await searchParams;
+  const moodParam = params?.mood;
 
   // ✅ safe conversion (NO type assertion hacks)
   const selectedMood: Mood | null =
@@ -65,59 +76,44 @@ export default async function HomePage({
     ? stories.filter((s) => s.mood === selectedMood)
     : stories;
 
-  const now = new Date();
-  const hour = now.getHours();
-
-  const ambientLabel =
-    hour >= 21
-      ? "Night"
-      : hour >= 17
-      ? "Late evening"
-      : hour >= 12
-      ? "Afternoon"
-      : "Morning";
-
-  const ambientMessage =
-    hour >= 21
-      ? "A quiet story before sleep?"
-      : hour >= 17
-      ? "Perfect weather for a story."
-      : hour >= 12
-      ? "The world can wait. Read awhile."
-      : "Slow mornings deserve gentle stories.";
+  const ctaFeaturedId = featured[0]?.id;
+  const ctaFallbackId = stories[0]?.id;
 
   return (
-    <div className="relative min-h-screen text-slate-100 overflow-hidden bg-slate-950">
+    <HomePageClient
+      ctaFeaturedId={ctaFeaturedId}
+      ctaFallbackId={ctaFallbackId}
+      featured={featured}
+      selectedMood={selectedMood}
+      filtered={filtered}
+    />
+  );
+}
+
+function HomePageClient({
+  ctaFeaturedId,
+  ctaFallbackId,
+  featured,
+  selectedMood,
+  filtered,
+}: {
+  ctaFeaturedId?: string;
+  ctaFallbackId?: string;
+  featured: Story[];
+  selectedMood: Mood | null;
+  filtered: Story[];
+}) {
+  return (
+    <div className="relative min-h-screen text-slate-100 overflow-x-hidden bg-slate-950">
       <Navbar />
 
-      {/* HERO */}
-      <section className="relative w-full h-[38vh] flex flex-col justify-center items-start px-6 max-w-lg mx-auto border-b border-white/5 bg-gradient-to-b from-white/[0.02] to-transparent pt-16">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-slate-300 mb-2">
-          <span>{ambientLabel}</span>
-        </div>
-
-        <h1 className="font-display text-4xl font-bold text-white tracking-tight leading-tight">
-          Good {ambientLabel.toLowerCase()}, Reader
-        </h1>
-
-        <p className="font-body text-sm text-slate-400 mt-2 italic">
-          "{ambientMessage}"
-        </p>
-      </section>
+      <Hero featuredStoryId={ctaFeaturedId} fallbackStoryId={ctaFallbackId} />
 
       {/* MAIN */}
       <main className="relative z-10 pb-32 px-4 max-w-lg mx-auto mt-6 space-y-8">
         
         {/* FILTER */}
-        <div className="mb-2">
-          <MoodFilter
-            selected={selectedMood}
-            onSelect={(mood) => {
-              // Optional: connect to routing later
-              console.log("Selected mood:", mood);
-            }}
-          />
-        </div>
+        <MoodFilterWrapper selectedMood={selectedMood} />
 
         {/* FEATURED */}
         {!selectedMood && featured.length > 0 && (
@@ -146,7 +142,7 @@ export default async function HomePage({
         )}
 
         {/* STORIES */}
-        <section className="space-y-4">
+        <section id="stories" className="space-y-4">
           <div className="flex items-center justify-between border-b border-white/5 pb-2">
             <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase">
               {selectedMood ? `${selectedMood} Stories` : "All Anthologies"}
