@@ -68,7 +68,7 @@ async function getStory(storyId: string) {
 
   try {
     const query = `*[_type == "story" && id == $storyId][0] {
-      "id": id,
+      id,
       title,
       tagline,
       mood,
@@ -76,7 +76,7 @@ async function getStory(storyId: string) {
       publishedAt,
       featured,
       tags,
-      author->{
+      author {
         id,
         name,
         bio,
@@ -88,13 +88,8 @@ async function getStory(storyId: string) {
         sceneNumber,
         ambientEmoji,
         bgClass,
-        "sceneImageUrl": sceneImage.asset->url,
-        sceneImage {
-          asset->{
-            url
-          }
-        },
-        text
+        text,
+        "sceneImageUrl": sceneImage.asset->url
       }
     }`;
 
